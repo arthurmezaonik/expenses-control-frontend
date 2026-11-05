@@ -1,0 +1,8 @@
+.setup-screen { width: min(680px, calc(100% - 40px)); margin: 12vh auto 0; }
+.eyebrow { margin: 0 0 18px; color: #647267; font-size: .75rem; font-weight: 700; letter-spacing: .14em; }
+h1 { max-width: 620px; margin: 0; color: #19251d; font-size: clamp(2.5rem, 8vw, 5rem); font-weight: 600; letter-spacing: -.06em; line-height: .98; }
+.intro { max-width: 500px; margin: 24px 0 42px; color: #5f6c62; font-size: 1.1rem; line-height: 1.6; }
+.setup-card { display: flex; align-items: center; gap: 16px; padding: 20px; border: 1px solid #dce4dc; border-radius: 16px; background: #fff; }
+.setup-mark { display: grid; width: 48px; height: 48px; flex: 0 0 auto; place-items: center; border-radius: 14px; background: #e8f1e8; color: #31593a; font-size: 1.5rem; }
+.setup-card strong { color: #19251d; }
+.setup-card p { margin: 5px 0 0; color: #667269; }
