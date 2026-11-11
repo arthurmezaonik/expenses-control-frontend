@@ -1,4 +1,4 @@
-import type { Category, CategoryInput, CategoryPage, RecordStatus, Summary, Transaction, TransactionInput, TransactionPage } from './types'
+import type { AuthenticatedAccount, Category, CategoryInput, CategoryPage, RecordStatus, Summary, Transaction, TransactionInput, TransactionPage } from './types'
 
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080').replace(/\/$/, '')
 
@@ -12,15 +12,58 @@ export class ApiError extends Error {
   }
 }
 
+interface CsrfToken {
+  headerName: string
+  token: string
+}
+
+let csrfToken: CsrfToken | null = null
+let csrfTokenRequest: Promise<CsrfToken> | null = null
+
+async function getCsrfToken(): Promise<CsrfToken> {
+  if (csrfToken) return csrfToken
+
+  if (!csrfTokenRequest) {
+    csrfTokenRequest = fetch(`${apiBaseUrl}/auth/csrf`, { credentials: 'include' })
+      .then(async (response) => {
+        if (!response.ok) throw new ApiError('Could not get a security token. Please try again.', response.status)
+        csrfToken = await response.json() as CsrfToken
+        return csrfToken
+      })
+      .finally(() => { csrfTokenRequest = null })
+  }
+
+  return csrfTokenRequest
+}
+
+function clearCsrfToken() {
+  csrfToken = null
+  csrfTokenRequest = null
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const method = (init?.method ?? 'GET').toUpperCase()
+  const headers = new Headers(init?.headers)
+  if (init?.body && !(init.body instanceof URLSearchParams) && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json')
+  }
+
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+    const csrf = await getCsrfToken()
+    headers.set(csrf.headerName, csrf.token)
+  }
+
   const response = await fetch(`${apiBaseUrl}${path}`, {
     ...init,
-    headers: { ...(init?.body ? { 'Content-Type': 'application/json' } : {}), ...init?.headers },
+    method,
+    credentials: 'include',
+    headers,
   })
   if (!response.ok) {
     const message = await response.text()
     throw new ApiError(message || `Request failed (${response.status})`, response.status)
   }
+  if (response.status === 204) return undefined as T
   return response.json() as Promise<T>
 }
 
@@ -31,6 +74,22 @@ function query(params: Record<string, string | number | undefined>) {
 }
 
 export const api = {
+  async login(email: string, password: string) {
+    await request<void>('/auth/login', {
+      method: 'POST',
+      body: new URLSearchParams({ email, password }),
+    })
+    // Spring invalidates the pre-login CSRF token after authenticating.
+    clearCsrfToken()
+    await getCsrfToken()
+  },
+  getCurrentAccount() {
+    return request<AuthenticatedAccount>('/auth/me')
+  },
+  async logout() {
+    await request<void>('/auth/logout', { method: 'POST' })
+    clearCsrfToken()
+  },
   getTransactions(params: { page?: number; pageSize?: number; status?: RecordStatus; from?: string; to?: string } = {}) {
     return request<TransactionPage>(`/transactions?${query(params)}`)
   },

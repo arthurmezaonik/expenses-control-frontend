@@ -1,6 +1,13 @@
 export type TransactionType = 'INCOME' | 'EXPENSE'
 export type RecordStatus = 'ACTIVE' | 'INACTIVE'
 
+export interface AuthenticatedAccount {
+  id: string
+  firstName: string
+  lastName: string
+  email: string
+}
+
 export interface Category {
   id: string
   name: string
