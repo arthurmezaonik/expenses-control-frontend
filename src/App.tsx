@@ -54,6 +54,11 @@ function App() {
 
   useEffect(() => {
     let cancelled = false
+    if (!api.hasSession()) {
+      setAuthStatus('unauthenticated')
+      return () => { cancelled = true }
+    }
+
     api.getCurrentAccount().then((currentAccount) => {
       if (cancelled) return
       setAccount(currentAccount)

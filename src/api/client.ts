@@ -1,6 +1,14 @@
 import type { AuthenticatedAccount, Category, CategoryInput, CategoryPage, RecordStatus, Summary, Transaction, TransactionInput, TransactionPage } from './types'
 
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080').replace(/\/$/, '')
+const accessTokenKey = 'expenses-control.access-token'
+const tokenExpiryKey = 'expenses-control.access-token-expires-at'
+
+interface LoginResponse {
+  accessToken: string
+  tokenType: 'Bearer'
+  expiresAt: string
+}
 
 export class ApiError extends Error {
   readonly status: number
@@ -12,54 +20,34 @@ export class ApiError extends Error {
   }
 }
 
-interface CsrfToken {
-  headerName: string
-  token: string
+function clearAuthSession() {
+  sessionStorage.removeItem(accessTokenKey)
+  sessionStorage.removeItem(tokenExpiryKey)
 }
 
-let csrfToken: CsrfToken | null = null
-let csrfTokenRequest: Promise<CsrfToken> | null = null
-
-async function getCsrfToken(): Promise<CsrfToken> {
-  if (csrfToken) return csrfToken
-
-  if (!csrfTokenRequest) {
-    csrfTokenRequest = fetch(`${apiBaseUrl}/auth/csrf`, { credentials: 'include' })
-      .then(async (response) => {
-        if (!response.ok) throw new ApiError('Could not get a security token. Please try again.', response.status)
-        csrfToken = await response.json() as CsrfToken
-        return csrfToken
-      })
-      .finally(() => { csrfTokenRequest = null })
+function getValidAccessToken(): string | null {
+  const token = sessionStorage.getItem(accessTokenKey)
+  const expiresAt = Date.parse(sessionStorage.getItem(tokenExpiryKey) ?? '')
+  if (!token || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+    clearAuthSession()
+    return null
   }
-
-  return csrfTokenRequest
+  return token
 }
 
-function clearCsrfToken() {
-  csrfToken = null
-  csrfTokenRequest = null
-}
-
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(path: string, init?: RequestInit, includeAccessToken = true): Promise<T> {
   const method = (init?.method ?? 'GET').toUpperCase()
   const headers = new Headers(init?.headers)
   if (init?.body && !(init.body instanceof URLSearchParams) && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json')
   }
 
-  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
-    const csrf = await getCsrfToken()
-    headers.set(csrf.headerName, csrf.token)
-  }
+  const accessToken = includeAccessToken ? getValidAccessToken() : null
+  if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`)
 
-  const response = await fetch(`${apiBaseUrl}${path}`, {
-    ...init,
-    method,
-    credentials: 'include',
-    headers,
-  })
+  const response = await fetch(`${apiBaseUrl}${path}`, { ...init, method, headers })
   if (!response.ok) {
+    if (response.status === 401) clearAuthSession()
     const message = await response.text()
     throw new ApiError(message || `Request failed (${response.status})`, response.status)
   }
@@ -74,21 +62,27 @@ function query(params: Record<string, string | number | undefined>) {
 }
 
 export const api = {
+  hasSession() {
+    return getValidAccessToken() !== null
+  },
   async login(email: string, password: string) {
-    await request<void>('/auth/login', {
+    const result = await request<LoginResponse>('/auth/login', {
       method: 'POST',
-      body: new URLSearchParams({ email, password }),
-    })
-    // Spring invalidates the pre-login CSRF token after authenticating.
-    clearCsrfToken()
-    await getCsrfToken()
+      body: JSON.stringify({ email, password }),
+    }, false)
+
+    if (result.tokenType !== 'Bearer' || !result.accessToken || !Number.isFinite(Date.parse(result.expiresAt))) {
+      throw new Error('The server returned an invalid login response.')
+    }
+    sessionStorage.setItem(accessTokenKey, result.accessToken)
+    sessionStorage.setItem(tokenExpiryKey, result.expiresAt)
   },
   getCurrentAccount() {
     return request<AuthenticatedAccount>('/auth/me')
   },
   async logout() {
-    await request<void>('/auth/logout', { method: 'POST' })
-    clearCsrfToken()
+    // JWTs are stateless; signing out removes this browser tab's copy.
+    clearAuthSession()
   },
   getTransactions(params: { page?: number; pageSize?: number; status?: RecordStatus; from?: string; to?: string } = {}) {
     return request<TransactionPage>(`/transactions?${query(params)}`)
