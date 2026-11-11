@@ -31,7 +31,7 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
   return (
     <main className="auth-page">
       <section className="auth-card" aria-labelledby="login-title">
-        <a className="brand auth-brand" href="/" aria-label="Penny and Pine">
+        <a className="brand auth-brand" href={import.meta.env.BASE_URL} aria-label="Penny and Pine">
           <span className="brand-mark" aria-hidden="true">£</span>
           <span>penny &amp; pine</span>
         </a>
